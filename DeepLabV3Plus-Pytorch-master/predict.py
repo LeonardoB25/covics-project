@@ -1,24 +1,25 @@
+from datasets import VOCSegmentation, Cityscapes, cityscapes
+from glob import glob
+from metrics import StreamSegMetrics
+from PIL import Image
+from torch.utils import data
+from torchvision import transforms as T
 from torch.utils.data import dataset
 from tqdm import tqdm
+import argparse
 import network
-import utils
+import numpy as np
 import os
 import random
-import argparse
-import numpy as np
-
-from torch.utils import data
-from datasets import VOCSegmentation, Cityscapes, cityscapes
-from torchvision import transforms as T
-from metrics import StreamSegMetrics
-
 import torch
 import torch.nn as nn
+import utils
 
-from PIL import Image
-import matplotlib
-import matplotlib.pyplot as plt
-from glob import glob
+
+
+# constants
+RANDOM_SEED = 42
+
 
 def get_argparser():
     parser = argparse.ArgumentParser()
@@ -34,7 +35,6 @@ def get_argparser():
                               not (name.startswith("__") or name.startswith('_')) and callable(
                               network.modeling.__dict__[name])
                               )
-
     parser.add_argument("--model", type=str, default='deeplabv3plus_mobilenet',
                         choices=available_models, help='model name')
     parser.add_argument("--separable_conv", action='store_true', default=False,
@@ -42,29 +42,28 @@ def get_argparser():
     parser.add_argument("--output_stride", type=int, default=16, choices=[8, 16])
 
     # Train Options
-    parser.add_argument("--save_val_results_to", default=None,
-                        help="save segmentation results to the specified dir")
-
     parser.add_argument("--crop_val", action='store_true', default=False,
                         help='crop validation (default: False)')
     parser.add_argument("--val_batch_size", type=int, default=4,
                         help='batch size for validation (default: 4)')
-    parser.add_argument("--crop_size", type=int, default=513)
-
-    
+    parser.add_argument("--crop_size", type=int, default=513)    
     parser.add_argument("--ckpt", default=None, type=str,
                         help="resume from checkpoint")
     parser.add_argument("--gpu_id", type=str, default='0',
-                        help="GPU ID")
-    
-    # added
+                        help="GPU ID")    
+    parser.add_argument("--save_val_results_to", default=None,
+                        help="save segmentation results to the specified dir")    
     parser.add_argument("--save_raw_results_to", default=None,
-                        help="save raw label masks to the specified dir")
+                        help="save raw label masks to the specified dir")    
+    parser.add_argument("--max_samples", type=int, default=None,
+                        help="maximum number of images to process")
 
     return parser
 
+
 def main():
     opts = get_argparser().parse_args()
+
     if opts.dataset.lower() == 'voc':
         opts.num_classes = 21
         decode_fn = VOCSegmentation.decode_target
@@ -74,7 +73,7 @@ def main():
 
     os.environ['CUDA_VISIBLE_DEVICES'] = opts.gpu_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print("Device: %s" % device)
+    print(f"Deeplab V3+ device: {device}")
 
     # Setup dataloader
     image_files = []
@@ -86,6 +85,14 @@ def main():
     elif os.path.isfile(opts.input):
         image_files.append(opts.input)
     
+    # sort and sample data if constraint is provided
+    image_files = sorted(image_files)
+    if opts.max_samples is not None:
+        random.seed(RANDOM_SEED)
+        n_to_sample = min(len(image_files), opts.max_samples)
+        image_files = random.sample(image_files, n_to_sample)
+        image_files = sorted(image_files)
+
     # Set up model (all models are 'constructed at network.modeling)
     model = network.modeling.__dict__[opts.model](num_classes=opts.num_classes, output_stride=opts.output_stride)
     if opts.separable_conv and 'plus' in opts.model:
@@ -98,7 +105,7 @@ def main():
         model.load_state_dict(checkpoint["model_state"])
         model = nn.DataParallel(model)
         model.to(device)
-        print("Resume model from %s" % opts.ckpt)
+        print(f"Resume model from {opts.ckpt}")
         del checkpoint
     else:
         print("[!] Retrain")
@@ -123,7 +130,7 @@ def main():
             ])
     if opts.save_val_results_to is not None:
         os.makedirs(opts.save_val_results_to, exist_ok=True)
-    if opts.save_raw_results_to is not None: # added for raw predictions
+    if opts.save_raw_results_to is not None:
         os.makedirs(opts.save_raw_results_to, exist_ok=True)
     with torch.no_grad():
         model = model.eval()
