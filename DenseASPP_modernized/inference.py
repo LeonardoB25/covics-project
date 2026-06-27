@@ -134,18 +134,3 @@ class Inference(object):
 		dst = np.array(dst, dtype=np.uint8)
 		dst = cv2.cvtColor(dst, cv2.COLOR_RGB2BGR)
 		return dst
-
-
-	def predict_labels(self, test_img):
-		"""
-		Returns the raw class id map (0-18) for miou calculation
-		"""
-		
-		# get the probability tensor from inference
-		pre = self.single_inference(test_img)
-		
-		# get the class index for each pixel (argmax)
-		# the result is a 2d array (height, width) with values 0-18
-		result = np.argmax(pre, axis=1)[0]
-		
-		return result.astype(np.uint8)
