@@ -116,8 +116,7 @@ class Inference(object):
 			new_state_dict[name] = v
 		
 		# debug
-		missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
-		
+		missing, unexpected = model.load_state_dict(new_state_dict, strict=True)
 		if missing:
 			print(f"Missing keys: {missing}")
 		if unexpected:
